@@ -1,17 +1,13 @@
-[tool.poetry]
+[project]
 name = "funnel-cake"
 version = "0.1.0"
 description = ""
 authors = ["Ian Graham <irgraham1@gmail.com>"]
 
 [tool.poetry.dependencies]
-python = "^3.9"
+python = "^3.8"
 tensorflow-gpu = "*"
 tensorflow-probability = "*"
 graph-nets = "1.1.0"
 dm-sonnet = "2.0.0"
 gast = "0.3.3"
-
-[virtualenvs]
-create = true
-in-project = true
