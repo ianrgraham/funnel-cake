@@ -1,5 +1,5 @@
 prefix: ./.venv
-name: monk
+name: funnel-cake
 channels:
   - conda-forge
   - defaults
