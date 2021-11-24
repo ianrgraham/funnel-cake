@@ -1,1 +1,161 @@
-# this will run all of the post-analysis and plot generation for the entropy-softness paper
+# this will run all of the post-analysis and plot generation for the excess entropy-softness paper
+
+flag = config["flag"]
+chunks = config["chunks"]
+pair_to_ttemp = {}
+pair_to_seed = {}
+# for dir_tag, systems in config["pairs_phis_ttemps_batches"].items():
+#     for pair_phi_ttemp in systems:
+#         tpair = '-'.join(pair_phi_ttemp[0])
+#         ttemp = float(pair_phi_ttemp[2])
+#         pair_to_ttemp[tpair] = ttemp
+
+
+def dd(post_path):
+    """
+    Prepend the data directory to the provided path
+    """
+    import os
+    tmp = os.environ["CAKE_DATA_DIR"] + "/funnel-cake/" + post_path
+    print(tmp)
+    return tmp
+
+def dd_monk(post_path):
+    """
+    Prepend monk data directory to the provided path
+    """
+    import os
+    tmp = os.environ["CAKE_DATA_DIR"] + "/monk/" + post_path
+    print(tmp)
+    return tmp
+
+
+def gen_all():
+    """
+    Iterate over data supplied in the configuration file for all rule
+    """
+    outputs = []
+    try:
+        seed = int(config["starting_seed"])
+    except:
+        seed = 0
+
+    for dir_tag, systems in config["pairs_phis_ttemps_batches"].items():
+        for temp in config["temps"]:
+            for pair_phi_ttemp in systems:
+                tpair = '-'.join(pair_phi_ttemp[0])
+                tphi = pair_phi_ttemp[1]
+                ttemp = float(pair_phi_ttemp[2])
+                if temp == ttemp:
+                    if tpair not in pair_to_ttemp:
+                        pair_to_ttemp[tpair] = ttemp
+                        pair_to_seed[tpair] = seed
+                    outputs.append(dd(f"entr_soft_pub/{config['out_dir_tag']}/trained_pipelines/{dir_tag}/pair-{tpair}_phi-{tphi}/pipeline.pkl"))
+                    for chunk_idx in range(chunks):
+                        outputs.append(dd(f"entr_soft_pub/{config['out_dir_tag']}/training_SFs/{dir_tag}/pair-{tpair}_phi-{tphi}/temp-{temp}_seed-{seed}_chunk-{chunk_idx}.parquet"))
+                        if flag == "test":
+                            break
+                elif flag == "test":
+                    seed += 1
+                    continue
+                    
+                for chunk_idx in range(chunks):
+                    outputs.append(dd(f"entr_soft_pub/{config['out_dir_tag']}/softness/{dir_tag}/pair-{tpair}_phi-{tphi}/temp-{temp}_seed-{seed}_chunk-{chunk_idx}.parquet"))
+                    outputs.append(dd(f"entr_soft_pub/{config['out_dir_tag']}/excess_entropy/{dir_tag}/pair-{tpair}_phi-{tphi}/temp-{temp}_seed-{seed}_chunk-{chunk_idx}.parquet"))
+                    if flag == "test":
+                        break
+
+                seed += 1
+
+    return outputs
+
+def config_param(path, tag):
+    obj = config[tag]
+    fpath = path.replace("{"+tag+"}", obj)
+    return fpath
+
+def sub_param(path, tag, obj):
+    fpath = path.replace("{"+tag+"}", obj)
+    return fpath
+
+def expand_chunks(path):
+    output = []
+    for chunk_idx in range(chunks):
+        output.append(sub_param(path, "chunk_idx", str(chunk_idx)))
+        if flag == "test":
+            break
+    print(output)
+    return output
+
+def find_pipeline(wildcards):
+    out_dir_tag = config["out_dir_tag"]
+    out = dd(f"entr_soft_pub/{out_dir_tag}/trained_pipelines/{wildcards.dir_tag}/pair-{wildcards.pair}_phi-{wildcards.phi}/pipeline.pkl")
+    print(out)
+    return out
+
+rule all:
+    input: 
+        *gen_all()
+
+rule gen_training_SFs:
+    input:
+        dd_monk(
+            "pre_softness_fire/{dir_tag}/pair-{pair}_phi-{phi}/temp-{temp}_seed-{seed}.gsd"
+        )
+    output:
+        protected(dd(config_param("entr_soft_pub/{out_dir_tag}/training_SFs/{dir_tag}/pair-{pair}_phi-{phi}/temp-{temp}_seed-{seed}_chunk-{chunk_idx}.parquet", "out_dir_tag")))
+    params:
+        chunks=config["chunks"]
+    resources:
+        time="1-00:00:00",
+        mem_mb=2000
+    shell:
+        "python ../../scripts/entr_soft_pub/gen_training_SFs.py {input} {output} "
+        "--chunks {params.chunks} --chunk-idx {wildcards.chunk_idx}"
+
+
+def pipeline_production_input(wildcards):
+    out = expand_chunks(
+        dd(f"entr_soft_pub/{wildcards.out_dir_tag}/training_SFs/{wildcards.dir_tag}/pair-{wildcards.pair}_phi-{wildcards.phi}/temp-{{temp}}_seed-{{seed}}_chunk-{{chunk_idx}}.parquet"
+            .replace("{temp}", str(pair_to_ttemp[wildcards.pair]))
+            .replace("{seed}", str(pair_to_seed[wildcards.pair])))
+    )
+    return out
+
+rule train_softness:
+    input:
+        pipeline_production_input
+    output:
+        protected(dd("entr_soft_pub/{out_dir_tag}/trained_pipelines/{dir_tag}/pair-{pair}_phi-{phi}/pipeline.pkl"))
+    resources:
+        time="1-00:00:00",
+        mem_mb=2000
+    shell:
+        "python ../../scripts/entr_soft_pub/train_softness.py {input} {output}"
+
+rule gen_softness:
+    input:
+        pipeline=find_pipeline,
+        itraj=dd_monk("pre_softness_fire/{dir_tag}/pair-{pair}_phi-{phi}/temp-{temp}_seed-{seed}.gsd")
+    output:
+        protected(dd(config_param("entr_soft_pub/{out_dir_tag}/softness/{dir_tag}/pair-{pair}_phi-{phi}/temp-{temp}_seed-{seed}_chunk-{chunk_idx}.parquet", "out_dir_tag")))
+    params:
+        chunks=config["chunks"]
+    resources:
+        time="1-00:00:00",
+        mem_mb=2000
+    shell:
+        "python ../../scripts/entr_soft_pub/gen_softness.py {input.itraj} {output} --soft-pipe {input.pipeline} "
+        "--chunks {params.chunks} --chunk-idx {wildcards.chunk_idx}"
+
+rule gen_entropy:
+    input:
+        itraj=dd_monk("pre_softness_fire/{dir_tag}/pair-{pair}_phi-{phi}/temp-{temp}_seed-{seed}.gsd"),
+        isoft=dd(config_param("entr_soft_pub/{out_dir_tag}/softness/{dir_tag}/pair-{pair}_phi-{phi}/temp-{temp}_seed-{seed}_chunk-{chunk_idx}.parquet", "out_dir_tag"))
+    output:
+        protected(dd(config_param("entr_soft_pub/{out_dir_tag}/excess_entropy/{dir_tag}/pair-{pair}_phi-{phi}/temp-{temp}_seed-{seed}_chunk-{chunk_idx}.parquet", "out_dir_tag")))
+    resources:
+        time="1-00:00:00",
+        mem_mb=2000
+    shell:
+        "python ../../scripts/entr_soft_pub/gen_s2_from_softness.py {input.itraj} {input.isoft} {output}"
