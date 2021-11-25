@@ -6,7 +6,7 @@ pair_to_ttemp = {}
 pair_to_seed = {}
 
 def get_mem_mb(wildcards, attempt):
-    return attempt * 2000
+    return attempt * 3000
 
 
 def dd(post_path):
