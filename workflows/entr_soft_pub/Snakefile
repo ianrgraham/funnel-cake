@@ -5,8 +5,20 @@ chunks = config["chunks"]
 pair_to_ttemp = {}
 pair_to_seed = {}
 
+try:
+    profile=config["profile"]
+    if profile:
+        python_run="fil-profile run"
+    else:
+        python_run="python"
+except:
+    python_run="python"
+
+def get_python():
+    return python_run
+
 def get_mem_mb(wildcards, attempt):
-    return attempt * 3000
+    return attempt * 2000
 
 
 def dd(post_path):
@@ -102,12 +114,13 @@ rule gen_training_SFs:
     output:
         protected(dd(config_param("entr_soft_pub/{out_dir_tag}/training_SFs/{dir_tag}/pair-{pair}_phi-{phi}/temp-{temp}_seed-{seed}_chunk-{chunk_idx}.parquet", "out_dir_tag")))
     params:
-        chunks=config["chunks"]
+        chunks=config["chunks"],
+        python=get_python()
     resources:
         time="1-00:00:00",
         mem_mb=get_mem_mb
     shell:
-        "python ../../scripts/entr_soft_pub/gen_training_SFs.py {input} {output} "
+        "{params.python} ../../scripts/entr_soft_pub/gen_training_SFs.py {input} {output} "
         "--chunks {params.chunks} --chunk-idx {wildcards.chunk_idx}"
 
 
@@ -124,11 +137,13 @@ rule train_softness:
         pipeline_production_input
     output:
         protected(dd("entr_soft_pub/{out_dir_tag}/trained_pipelines/{dir_tag}/pair-{pair}_phi-{phi}/pipeline.pkl"))
+    params:
+        python=get_python()
     resources:
         time="1-00:00:00",
         mem_mb=get_mem_mb
     shell:
-        "python ../../scripts/entr_soft_pub/train_softness.py {input} {output}"
+        "{params.python} ../../scripts/entr_soft_pub/train_softness.py {input} {output}"
 
 rule gen_softness:
     input:
@@ -137,12 +152,13 @@ rule gen_softness:
     output:
         protected(dd(config_param("entr_soft_pub/{out_dir_tag}/softness/{dir_tag}/pair-{pair}_phi-{phi}/temp-{temp}_seed-{seed}_chunk-{chunk_idx}.parquet", "out_dir_tag")))
     params:
-        chunks=config["chunks"]
+        chunks=config["chunks"],
+        python=get_python()
     resources:
         time="1-00:00:00",
         mem_mb=get_mem_mb
     shell:
-        "python ../../scripts/entr_soft_pub/gen_softness.py {input.itraj} {output} --soft-pipe {input.pipeline} "
+        "{params.python} ../../scripts/entr_soft_pub/gen_softness.py {input.itraj} {output} --soft-pipe {input.pipeline} "
         "--chunks {params.chunks} --chunk-idx {wildcards.chunk_idx}"
 
 rule gen_entropy:
@@ -151,8 +167,10 @@ rule gen_entropy:
         isoft=dd(config_param("entr_soft_pub/{out_dir_tag}/softness/{dir_tag}/pair-{pair}_phi-{phi}/temp-{temp}_seed-{seed}_chunk-{chunk_idx}.parquet", "out_dir_tag"))
     output:
         protected(dd(config_param("entr_soft_pub/{out_dir_tag}/excess_entropy/{dir_tag}/pair-{pair}_phi-{phi}/temp-{temp}_seed-{seed}_chunk-{chunk_idx}.parquet", "out_dir_tag")))
+    params:
+        python=get_python()
     resources:
         time="1-00:00:00",
         mem_mb=get_mem_mb
     shell:
-        "python ../../scripts/entr_soft_pub/gen_s2_from_softness.py {input.itraj} {input.isoft} {output}"
+        "{params.python} ../../scripts/entr_soft_pub/gen_s2_from_softness.py {input.itraj} {input.isoft} {output}"

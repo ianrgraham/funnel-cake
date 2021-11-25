@@ -11,9 +11,10 @@ pairs_phis_ttemps_batches: {
   ]
 }
 
-chunks: 10
+chunks: 100
 
 # meta
 out_dir_tag: "final"
 flag: ""
 starting_seed: 0
+profile: False
