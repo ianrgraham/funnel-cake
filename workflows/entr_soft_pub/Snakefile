@@ -4,11 +4,9 @@ flag = config["flag"]
 chunks = config["chunks"]
 pair_to_ttemp = {}
 pair_to_seed = {}
-# for dir_tag, systems in config["pairs_phis_ttemps_batches"].items():
-#     for pair_phi_ttemp in systems:
-#         tpair = '-'.join(pair_phi_ttemp[0])
-#         ttemp = float(pair_phi_ttemp[2])
-#         pair_to_ttemp[tpair] = ttemp
+
+def get_mem_mb(wildcards, attempt):
+    return attempt * 2000
 
 
 def dd(post_path):
@@ -17,7 +15,6 @@ def dd(post_path):
     """
     import os
     tmp = os.environ["CAKE_DATA_DIR"] + "/funnel-cake/" + post_path
-    print(tmp)
     return tmp
 
 def dd_monk(post_path):
@@ -26,7 +23,6 @@ def dd_monk(post_path):
     """
     import os
     tmp = os.environ["CAKE_DATA_DIR"] + "/monk/" + post_path
-    print(tmp)
     return tmp
 
 
@@ -54,7 +50,8 @@ def gen_all():
                     for chunk_idx in range(chunks):
                         outputs.append(dd(f"entr_soft_pub/{config['out_dir_tag']}/training_SFs/{dir_tag}/pair-{tpair}_phi-{tphi}/temp-{temp}_seed-{seed}_chunk-{chunk_idx}.parquet"))
                         if flag == "test":
-                            break
+                            if chunk_idx >= config["test_chunk_limit"]:
+                                break
                 elif flag == "test":
                     seed += 1
                     continue
@@ -63,7 +60,8 @@ def gen_all():
                     outputs.append(dd(f"entr_soft_pub/{config['out_dir_tag']}/softness/{dir_tag}/pair-{tpair}_phi-{tphi}/temp-{temp}_seed-{seed}_chunk-{chunk_idx}.parquet"))
                     outputs.append(dd(f"entr_soft_pub/{config['out_dir_tag']}/excess_entropy/{dir_tag}/pair-{tpair}_phi-{tphi}/temp-{temp}_seed-{seed}_chunk-{chunk_idx}.parquet"))
                     if flag == "test":
-                        break
+                        if chunk_idx >= config["test_chunk_limit"]:
+                            break
 
                 seed += 1
 
@@ -83,14 +81,13 @@ def expand_chunks(path):
     for chunk_idx in range(chunks):
         output.append(sub_param(path, "chunk_idx", str(chunk_idx)))
         if flag == "test":
-            break
-    print(output)
+            if chunk_idx >= config["test_chunk_limit"]:
+                break
     return output
 
 def find_pipeline(wildcards):
     out_dir_tag = config["out_dir_tag"]
     out = dd(f"entr_soft_pub/{out_dir_tag}/trained_pipelines/{wildcards.dir_tag}/pair-{wildcards.pair}_phi-{wildcards.phi}/pipeline.pkl")
-    print(out)
     return out
 
 rule all:
@@ -108,7 +105,7 @@ rule gen_training_SFs:
         chunks=config["chunks"]
     resources:
         time="1-00:00:00",
-        mem_mb=2000
+        mem_mb=get_mem_mb
     shell:
         "python ../../scripts/entr_soft_pub/gen_training_SFs.py {input} {output} "
         "--chunks {params.chunks} --chunk-idx {wildcards.chunk_idx}"
@@ -129,7 +126,7 @@ rule train_softness:
         protected(dd("entr_soft_pub/{out_dir_tag}/trained_pipelines/{dir_tag}/pair-{pair}_phi-{phi}/pipeline.pkl"))
     resources:
         time="1-00:00:00",
-        mem_mb=2000
+        mem_mb=get_mem_mb
     shell:
         "python ../../scripts/entr_soft_pub/train_softness.py {input} {output}"
 
@@ -143,7 +140,7 @@ rule gen_softness:
         chunks=config["chunks"]
     resources:
         time="1-00:00:00",
-        mem_mb=2000
+        mem_mb=get_mem_mb
     shell:
         "python ../../scripts/entr_soft_pub/gen_softness.py {input.itraj} {output} --soft-pipe {input.pipeline} "
         "--chunks {params.chunks} --chunk-idx {wildcards.chunk_idx}"
@@ -156,6 +153,6 @@ rule gen_entropy:
         protected(dd(config_param("entr_soft_pub/{out_dir_tag}/excess_entropy/{dir_tag}/pair-{pair}_phi-{phi}/temp-{temp}_seed-{seed}_chunk-{chunk_idx}.parquet", "out_dir_tag")))
     resources:
         time="1-00:00:00",
-        mem_mb=2000
+        mem_mb=get_mem_mb
     shell:
         "python ../../scripts/entr_soft_pub/gen_s2_from_softness.py {input.itraj} {input.isoft} {output}"
