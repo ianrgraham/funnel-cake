@@ -10,6 +10,7 @@ from pathlib import Path
 
 from schmeud.dynamics import thermal
 from schmeud import softness
+import time
 
 valid_input_formats = [".gsd"]
 valid_output_formats = [".parquet"]
@@ -32,6 +33,7 @@ parser.add_argument("ofile", type=str, help=f"Output file (allowed formats: {val
 parser.add_argument("--soft-pipe", type=str, help="Path to pipeline object")
 parser.add_argument('--chunks', help="Segment input files into N chunks", type=int)
 parser.add_argument('--chunk-idx', help="If chunking, index to choose", type=int)
+parser.add_argument('--drop-xs', help="Stride of retained Xs", type=int, default=10)
 args = parser.parse_args()
 
 ifile = Path(args.ifile)
@@ -39,6 +41,8 @@ ofile = Path(args.ofile)
 
 chunks = args.chunks
 chunk_idx = args.chunk_idx
+
+drop_xs = args.drop_xs
 
 print(f"Working file: {ifile}")
 print(f"Processing chunk: {chunk_idx} of {chunks}")
@@ -64,11 +68,15 @@ with gsd.hoomd.open(str(ifile), mode='rb') as traj:
 
     print(f"Slice: {sub_slice}")
 
+    start = time.time()
+
     print("Calculating features")
-    df = softness.calc_structure_functions_dataframe(
+    df = softness.calc_structure_functions_dataframe_rust(
         traj,
         sub_slice=sub_slice
     )
+
+    print("generating softness", time.time() - start)
 
     print("finding which intervals had rearrangements, and which did not")
     phop_slice = phop[sub_slice].flatten()
@@ -82,8 +90,9 @@ with gsd.hoomd.open(str(ifile), mode='rb') as traj:
     print("Droping B type and calculating softness")
     df = df[df.labels == 0]
     df["softness"] = pipeA.decision_function(list(df.Xs.values))
-    # df.drop("Xs", axis=1, inplace=True)
     df["entropy"] = df.Xs.apply(local_s2)
+    # df.drop("Xs", axis=1, inplace=True)
+    df["Xs"][df["frames"] % 10 != 0] = None
 
 print(f"Writing to parquet: {ofile}")
 df.to_parquet(str(ofile))

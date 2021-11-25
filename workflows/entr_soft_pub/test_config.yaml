@@ -14,6 +14,6 @@ pairs_phis_ttemps_batches: {
 chunks: 50
 
 # meta
-out_dir_tag: "test"
+out_dir_tag: "test2"
 flag: "test"
 starting_seed: 0

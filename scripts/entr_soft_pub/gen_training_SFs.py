@@ -8,6 +8,8 @@ import numpy as np
 from schmeud.dynamics import thermal
 from schmeud import softness
 
+import time
+
 valid_input_formats = [".gsd"]
 valid_output_formats = [".parquet"]
 
@@ -42,10 +44,17 @@ with gsd.hoomd.open(str(ifile), mode='rb') as traj:
     dyn_indices = softness.group_hard_soft_by_cutoffs(phop, hard_distance=400, sub_slice=sub_slice)
 
     print("Calculating features")
-    df = softness.calc_structure_functions_dataframe(
+
+    print(len(dyn_indices))
+
+    start = time.time()
+
+    df = softness.calc_structure_functions_dataframe_rust(
         traj,
-        dyn_indices=dyn_indices,
+        dyn_indices=dyn_indices
     )
+
+    print("generating training", time.time() - start)
 
     phop = phop[sub_slice]
     sub_phop = []
