@@ -5,16 +5,17 @@ pairs_phis_ttemps_batches: {
     [["KA_LJ"], "1.2", "0.47"],
     [["KA_ModLJ", "0.1"], "1.15", "0.55"]
   ],
-  "run2": [
-    [["KA_ModLJ", "0.2"], "1.1", "0.61"],
-    [["KA_ModLJ", "0.3"], "1.05", "0.64"]
-  ]
+  # "run2": [
+  #   [["KA_ModLJ", "0.2"], "1.1", "0.61"],
+  #   [["KA_ModLJ", "0.3"], "1.05", "0.64"]
+  # ]
 }
 
-chunks: 50
+chunks: 100
 
 # meta
-out_dir_tag: "test3"
+out_dir_tag: "test4"
 flag: "test"
 starting_seed: 0
-test_chunk_limit: 3
+test_chunk_limit: 1
+profile: True

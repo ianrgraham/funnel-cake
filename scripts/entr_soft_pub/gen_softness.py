@@ -11,6 +11,7 @@ from pathlib import Path
 from schmeud.dynamics import thermal
 from schmeud import softness
 import time
+import gc
 
 valid_input_formats = [".gsd"]
 valid_output_formats = [".parquet"]
@@ -66,6 +67,11 @@ with gsd.hoomd.open(str(ifile), mode='rb') as traj:
     splits = np.linspace(idx_min, idx_max, chunks+1, dtype=int)
     sub_slice = slice(splits[chunk_idx], splits[chunk_idx+1])
 
+    phop_slice = phop[sub_slice].flatten()
+    del phop
+
+    gc.collect()
+
     print(f"Slice: {sub_slice}")
 
     start = time.time()
@@ -79,7 +85,6 @@ with gsd.hoomd.open(str(ifile), mode='rb') as traj:
     print("generating softness", time.time() - start)
 
     print("finding which intervals had rearrangements, and which did not")
-    phop_slice = phop[sub_slice].flatten()
 
     rearrang = phop_slice >= 0.2
 

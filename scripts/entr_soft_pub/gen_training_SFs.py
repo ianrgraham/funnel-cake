@@ -9,6 +9,7 @@ from schmeud.dynamics import thermal
 from schmeud import softness
 
 import time
+import gc
 
 valid_input_formats = [".gsd"]
 valid_output_formats = [".parquet"]
@@ -39,7 +40,6 @@ with gsd.hoomd.open(str(ifile), mode='rb') as traj:
     idx_max = len(phop)
     splits = np.linspace(idx_min, idx_max, chunks+1, dtype=int)
     sub_slice = slice(splits[chunk_idx], splits[chunk_idx+1])
-
 
     dyn_indices = softness.group_hard_soft_by_cutoffs(phop, hard_distance=400, sub_slice=sub_slice)
 
