@@ -33,7 +33,7 @@ parser.add_argument("ofile", type=str, help=f"Output file (allowed formats: {val
 parser.add_argument("--soft-pipe", type=str, help="Path to pipeline object")
 parser.add_argument('--chunks', help="Segment input files into N chunks", type=int)
 parser.add_argument('--chunk-idx', help="If chunking, index to choose", type=int)
-parser.add_argument('--drop-xs', help="Stride of retained Xs", type=int, default=10)
+parser.add_argument('--drop-xs', help="Stride of retained Xs", type=int, default=100)
 args = parser.parse_args()
 
 ifile = Path(args.ifile)
