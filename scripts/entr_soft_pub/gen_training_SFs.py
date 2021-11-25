@@ -56,7 +56,7 @@ with gsd.hoomd.open(str(ifile), mode='rb') as traj:
 
     print("generating training", time.time() - start)
 
-    phop = phop[sub_slice]
+    # phop = phop[sub_slice]
     sub_phop = []
     for idx, row in df[["frames", "ids"]].iterrows():
         sub_phop.append(phop[row.frames, row.ids])
