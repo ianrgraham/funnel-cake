@@ -7,9 +7,12 @@ https://github.com/deepmind/deepmind-research/tree/master/glassy_dynamics
 
 import functools
 from operator import is_
+import sys
 from typing import Any, Dict, Text, List, Sequence, Tuple, Optional
 from numba import njit
 from numpy.linalg import inv
+
+import matplotlib.pyplot as plt
 
 from graph_nets import graphs
 from graph_nets import modules as gn_modules
@@ -28,8 +31,11 @@ from collections import defaultdict
 import enum
 import freud
 
+import pickle
+
 # so the program doesn't crash my poor little computer
 gpus = tf.config.experimental.list_physical_devices('GPU')
+print(gpus)
 tf.config.experimental.set_virtual_device_configuration(
     gpus[0], [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=4096)])
 
@@ -54,7 +60,7 @@ class GraphBasedModel(snt.Module):
 
     def __init__(self,
                  n_recurrences: int,
-                 mlp_sizes: Tuple[int],
+                 mlp_sizes: Tuple[int, int],
                  mlp_kwargs: Optional[Dict[Text, Any]] = None,
                  final_layer_size: int = 1,
                  name='Graph'):
@@ -95,41 +101,11 @@ class GraphBasedModel(snt.Module):
                 edge_model_fn=model_fn,
                 # We do not use globals, just pass the identity function.
                 global_model_fn=lambda: lambda x: x,
-                reducer=tf.math.unsorted_segment_sum,
+                reducer=tf.math.unsorted_segment_mean,
                 edge_block_opt=dict(use_globals=False),
                 node_block_opt=dict(use_globals=False),
                 global_block_opt=dict(use_globals=False),
                 name="propagate")
-
-            # these are additional MPNN layers below. I've been experimenting
-            # with them, but still uncertain if they help substantially (more
-            # data or better data may be more important in my case)
-
-            # self._propagation_network_2 = gn_modules.GraphNetwork(
-            #     node_model_fn=model_fn,
-            #     edge_model_fn=model_fn,
-            #     # We do not use globals, just pass the identity function.
-            #     global_model_fn=lambda: lambda x: x,
-            #     reducer=tf.math.unsorted_segment_sum,
-            #     edge_block_opt=dict(use_globals=False),
-            #     node_block_opt=dict(use_globals=False),
-            #     global_block_opt=dict(use_globals=False),
-            #     name="propagate")
-
-            # self._propagation_network_3 = gn_modules.GraphNetwork(
-            #     node_model_fn=model_fn,
-            #     edge_model_fn=model_fn,
-            #     # We do not use globals, just pass the identity function.
-            #     global_model_fn=lambda: lambda x: x,
-            #     reducer=tf.math.unsorted_segment_sum,
-            #     edge_block_opt=dict(use_globals=False),
-            #     node_block_opt=dict(use_globals=False),
-            #     global_block_opt=dict(use_globals=False),
-            #     name="propagate")
-
-        # self._decoder_edge = gn_modules.GraphIndependent(
-        #     edge_model_fn=model_fn,
-        #     name="decode_edge")
 
         self._decoder_node = gn_modules.GraphIndependent(
             node_model_fn=final_model_fn,
@@ -154,20 +130,6 @@ class GraphBasedModel(snt.Module):
             # Adds skip connections by concatenating the encoding with .
             inputs = utils_tf.concat([outputs, encoded], axis=-1)
             outputs = self._propagation_network(inputs)
-
-        # first_layer = outputs
-
-        # for _ in range(self._n_recurrences):
-        #     # Adds skip connections.
-        #     inputs = utils_tf.concat([first_layer, outputs, encoded], axis=-1)
-        #     outputs = self._propagation_network_2(inputs)
-
-        # second_layer = outputs
-
-        # for _ in range(self._n_recurrences):
-        #     # Adds skip connections.
-        #     inputs = utils_tf.concat([first_layer, second_layer, outputs, encoded], axis=-1)
-        #     outputs = self._propagation_network_3(inputs)
 
         inputs = utils_tf.concat([outputs, encoded], axis=-1)  # this may not be a necessary skip connection
         # outputs_edge = self._decoder_edge(outputs)
@@ -225,7 +187,7 @@ def get_log_d2min_from_pos_box(pos0, pos, nlist, box, box2):
         d2min, _, _ = get_d2min(bonds0, bonds)
         d2mins[i] = d2min
 
-    return np.log(d2mins)
+    return d2mins
 
 
 def make_graph_from_snapshots(
@@ -308,11 +270,13 @@ def load_data_gsd(
         file_pattern: Text,
         time_index: int,
         edge_threshold: float = 2.0,
-        max_files_to_load: Optional[int] = None) -> List[Tuple[graphs.GraphsTuple, tf.Tensor]]:
+        max_files_to_load: Optional[int] = None,
+        recompute_graphs: bool = False) -> List[Tuple[graphs.GraphsTuple, tf.Tensor]]:
     """
 
     """
     filenames = tf.io.gfile.glob(file_pattern)
+    print(len(filenames), "files match the wildcard")
     if max_files_to_load:
         filenames = filenames[:max_files_to_load]
 
@@ -321,23 +285,44 @@ def load_data_gsd(
     typesl = []
     print("Num files:", len(filenames))
     for filename in filenames:
-        with gsd.hoomd.open(name=filename, mode="rb") as data:
-            num_frames = len(data)
-            for frame in range(39, num_frames-time_index, time_index):  # TODO the 39 is specific to my data
-                graph, target, types = make_graph_from_snapshots(
-                    data[frame],
-                    data[frame+time_index],
-                    edge_threshold=edge_threshold)
-                static_structures.append(graph)
-                targets.append(target)
-                typesl.append(types)
+        maybe_pickle_file = filename.replace(".gsd", "_graph.pickle")
+        assert maybe_pickle_file != filename
+        try:
+            if recompute_graphs:
+                raise Exception
+            with open(maybe_pickle_file, 'rb') as f:
+                pickle_data = pickle.load(f)
+                static_structures.extend(pickle_data["graph"])
+                targets.extend(pickle_data["target"])
+                typesl.extend(pickle_data["types"])
+        except:
+            with gsd.hoomd.open(name=filename, mode="rb") as data:
+                num_frames = len(data)
+                g = []
+                ta = []
+                t = []
+                for frame in np.arange(0, num_frames-80, time_index, dtype=int):  # TODO the 39 is specific to my data
+                    frame = int(frame)
+                    graph, target, types = make_graph_from_snapshots(
+                        data[frame],
+                        data[frame+time_index],
+                        edge_threshold=edge_threshold)
+                    g.append(graph)
+                    ta.append(target)
+                    t.append(types)
+                with open(maybe_pickle_file, "wb") as f:
+                    pickle.dump({"graph":g, "target":ta, "types":t}, f)
+                static_structures.extend(g)
+                targets.extend(ta)
+                typesl.extend(t)
     return static_structures, targets, typesl
 
 
 def get_loss_ops(
         prediction: tf.Tensor,
         target: tf.Tensor,
-        types: tf.Tensor
+        types: tf.Tensor,
+        batch_mask: tf.Tensor,
 ) -> LossCollection:
     """Returns L1/L2 loss and correlation for type A particles.
     Args:
@@ -349,6 +334,7 @@ def get_loss_ops(
     """
     # Considers only type A particles.
     mask = tf.equal(types, ParticleType.A)
+    mask = tf.logical_and(mask, batch_mask)
     prediction = tf.boolean_mask(prediction, mask)
     target = tf.boolean_mask(target, mask)
     return LossCollection(
@@ -377,19 +363,21 @@ def _log_stats_and_return_mean_correlation(
 
 
 def train_model(file_pattern: Text,
-                test_frac: .25,
+                test_frac: float,
                 max_files_to_load: Optional[int] = None,
                 n_epochs: int = 10_000,
                 time_index: int = 40,
-                augment_data_using_rotations: bool = True,
-                learning_rate: float = 1e-4,
+                augment_data_using_rotations: bool = False,
+                learning_rate: float = 1e-3,
                 grad_clip: Optional[float] = 1.0,
-                n_recurrences: int = 5,
-                mlp_sizes: Tuple[int] = (64, 64),
+                n_recurrences: int = 2,
+                mlp_sizes: Tuple[int, int] = (32, 32),
                 mlp_kwargs: Optional[Dict[Text, Any]] = None,
                 edge_threshold: float = 2.0,
                 measurement_store_interval: int = 10,
-                checkpoint_path: Optional[Text] = None) -> float:  # pytype: disable=annotation-type-mismatch
+                checkpoint_path: Optional[Text] = None,
+                mini_batch: Optional[int] = 64,
+                recompute_graphs: bool = False) -> float:  # pytype: disable=annotation-type-mismatch
     """Trains GraphModel using tensorflow.
     Args:
         train_file_pattern: pattern matching the files with the training data.
@@ -418,15 +406,18 @@ def train_model(file_pattern: Text,
     dataset_kwargs = dict(
         time_index=time_index,
         max_files_to_load=max_files_to_load,
-        edge_threshold=edge_threshold)
+        edge_threshold=edge_threshold,
+        recompute_graphs=recompute_graphs)
     my_data, my_targets, my_types = load_data_gsd(file_pattern, **dataset_kwargs)
 
-    save_prefix = os.path.join(checkpoint_path, "my_model/test1")
+    save_prefix = os.path.join(checkpoint_path, "my_model/test3")
 
     # this is a bit crude, but just shift and rescale the targets
-    mean_targets = np.mean(my_targets)
-    std_targets = np.std(my_targets)
-    my_targets = [(t-mean_targets)/std_targets for t in my_targets]
+    mean_targets = np.mean(np.log(my_targets))
+    std_targets = np.std(np.log(my_targets))
+    my_targets = [(np.log(t)-mean_targets)/std_targets for t in my_targets]
+    print(mean_targets, std_targets)
+    plt.hist(np.array(my_targets[0]), bins=25)
 
     # define optimizer, model, and checkpoint
     optimizer = tf.keras.optimizers.Adam(learning_rate, clipnorm=grad_clip)
@@ -435,7 +426,7 @@ def train_model(file_pattern: Text,
 
     # uncompiled training function
     # we have to do some work below to compile it onto our target device
-    def training_step(graph, targets, types):
+    def training_step(graph, targets, types, batch_mask, mini_batch_size):
         losses = []
         with tf.GradientTape() as tape:
             prediction = model(graph, is_training=True)
@@ -458,8 +449,8 @@ def train_model(file_pattern: Text,
     test_types = tf.stack(my_types[:split])
 
     latest = tf.train.latest_checkpoint(save_prefix)
-    if latest is not None:
-        checkpoint.restore(latest)
+    # if latest is not None:
+    #     checkpoint.restore(latest)
 
     # defines the shapes of our input types
     # this is necessary because the graphs have variable shape and tf.function
@@ -467,7 +458,9 @@ def train_model(file_pattern: Text,
     input_signature = [
         utils_tf.specs_from_graphs_tuple(training_graphs[0]),
         tf.TensorSpec(tf.shape(training_targets[0])),
-        tf.TensorSpec(tf.shape(training_types[0]), dtype=tf.int32)
+        tf.TensorSpec(tf.shape(training_types[0]), dtype=tf.int32),
+        tf.TensorSpec(tf.shape(training_types[0]), dtype=tf.bool),
+        tf.int32
     ]
     compiled_training_step = tf.function(training_step, input_signature=input_signature)
 
@@ -478,6 +471,7 @@ def train_model(file_pattern: Text,
         test_stats = []
         perm = tf.random.shuffle(tf.range(split))
         for j in range(split):
+            batch = tf.random.shuffle(tf.range(split))
             if augment_data_using_rotations:
                 train_loss = compiled_training_step(
                     apply_random_rotation(training_graphs[perm[j]]),
@@ -520,7 +514,7 @@ def apply_model(file_pattern: Text,
                 max_files_to_load: Optional[int] = None,
                 time_index: int = 40,
                 n_recurrences: int = 4,
-                mlp_sizes: Tuple[int] = (64, 64),
+                mlp_sizes: Tuple[int, int] = (64, 64),
                 mlp_kwargs: Optional[Dict[Text, Any]] = None,
                 edge_threshold: float = 1.5,
                 checkpoint_path: Optional[Text] = None) -> float:  # pytype: disable=annotation-type-mismatch

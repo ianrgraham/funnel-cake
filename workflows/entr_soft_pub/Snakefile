@@ -71,6 +71,7 @@ def gen_all():
                 for chunk_idx in range(chunks):
                     outputs.append(dd(f"entr_soft_pub/{config['out_dir_tag']}/softness/{dir_tag}/pair-{tpair}_phi-{tphi}/temp-{temp}_seed-{seed}_chunk-{chunk_idx}.parquet"))
                     outputs.append(dd(f"entr_soft_pub/{config['out_dir_tag']}/excess_entropy/{dir_tag}/pair-{tpair}_phi-{tphi}/temp-{temp}_seed-{seed}_chunk-{chunk_idx}.parquet"))
+                    outputs.append(dd(f"entr_soft_pub/{config['out_dir_tag']}/excess_entropy_ord/{dir_tag}/pair-{tpair}_phi-{tphi}/temp-{temp}_seed-{seed}_chunk-{chunk_idx}.parquet"))
                     if flag == "test":
                         if chunk_idx >= config["test_chunk_limit"]:
                             break
@@ -167,6 +168,20 @@ rule gen_entropy:
         isoft=dd(config_param("entr_soft_pub/{out_dir_tag}/softness/{dir_tag}/pair-{pair}_phi-{phi}/temp-{temp}_seed-{seed}_chunk-{chunk_idx}.parquet", "out_dir_tag"))
     output:
         protected(dd(config_param("entr_soft_pub/{out_dir_tag}/excess_entropy/{dir_tag}/pair-{pair}_phi-{phi}/temp-{temp}_seed-{seed}_chunk-{chunk_idx}.parquet", "out_dir_tag")))
+    params:
+        python=get_python()
+    resources:
+        time="1-00:00:00",
+        mem_mb=get_mem_mb
+    shell:
+        "{params.python} ../../scripts/entr_soft_pub/gen_s2_from_softness.py {input.itraj} {input.isoft} {output}"
+
+rule gen_entropy_ord:
+    input:
+        itraj=dd_monk("pre_softness/{dir_tag}/pair-{pair}_phi-{phi}/temp-{temp}_seed-{seed}.gsd"),
+        isoft=dd(config_param("entr_soft_pub/{out_dir_tag}/softness/{dir_tag}/pair-{pair}_phi-{phi}/temp-{temp}_seed-{seed}_chunk-{chunk_idx}.parquet", "out_dir_tag"))
+    output:
+        protected(dd(config_param("entr_soft_pub/{out_dir_tag}/excess_entropy_ord/{dir_tag}/pair-{pair}_phi-{phi}/temp-{temp}_seed-{seed}_chunk-{chunk_idx}.parquet", "out_dir_tag")))
     params:
         python=get_python()
     resources:

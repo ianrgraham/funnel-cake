@@ -7,3 +7,6 @@ __pycache__
 .snakemake
 
 *.pkl
+
+dask-worker-space
+.ipynb_checkpoints
